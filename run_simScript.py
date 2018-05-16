@@ -2,7 +2,6 @@
 import ROOT,os,sys,getopt,time
 import shipunit as u
 import shipRoot_conf
-import convertDMevents
 import rootUtils as ut
 from ShipGeoConfig import ConfigRegistry
 debug = 0  # 1 print weights and field
@@ -10,6 +9,11 @@ debug = 0  # 1 print weights and field
 # Default HNL parameters
 theMass = 1.0*u.GeV
 theCouplings = [0.447e-9, 7.15e-9, 1.88e-9] # ctau=53.3km  TP default for HNL
+
+# Default Light Dark Matter parameters
+theLDMmass = 0.1*u.GeV
+#LDMpdgcode = 9000007
+LDMpdgcode = 5000521
 
 # Default dark photon parameters
 theDPmass = 0.2*u.GeV
@@ -28,12 +32,13 @@ MCTracksWithHitsOrEnergyCut = False # or of above, factor 2 file size increase c
 charmonly    = False  # option to be set with -A to enable only charm decays, charm x-sec measurement  
 HNL          = False
 DarkPhoton   = False
+LightDarkMatter = False
 RPVSUSY      = False
 RPVSUSYbench = 2
 
 eventDisplay = False
 inputFile    = "/eos/experiment/ship/data/Charm/Cascade-parp16-MSTP82-1-MSEL4-76Mpot_1.root"
-
+inputPythiaFile = "out.lhe"
 defaultInputFile = True
 outputDir    = "."
 sameSeed     = False # can be set to an integer for the muonBackground simulation with specific seed for each muon 
@@ -60,7 +65,7 @@ try:
         opts, args = getopt.getopt(sys.argv[1:], "D:FHPu:n:i:f:c:hqv:s:l:A:Y:i:m:co:t:g",[\
                                    "PG","Pythia6","Pythia8","Genie","MadDump","MuDIS","Ntuple","Nuage","MuonBack","FollowMuon","FastMuon",\
                                    "Cosmics=","nEvents=", "display", "seed=", "firstEvent=", "phiRandom", "mass=", "couplings=", "coupling=", "epsilon=",\
-                                   "output=","tankDesign=","muShieldDesign=","NuRadio","test",\
+                                   "output=","tankDesign=","muShieldDesign=","NuRadio","test", "madpy"\
                                    "DarkPhoton","RpvSusy","SusyBench=","sameSeed=","charm=","nuTauTargetDesign=","caloDesign=","strawDesign="])
 
 except getopt.GetoptError:
@@ -72,7 +77,7 @@ except getopt.GetoptError:
         print '       --MuonBack to generate events from muon background file, --Cosmics=0 for cosmic generator data'  
         print '       --RpvSusy to generate e vents based on RPV neutralino (default HNL)'
         print '       --DarkPhoton to generate events with dark photons (default HNL)'
-	print '	      --MadDump for reading and processing Light Dark Matter interactions'
+	print '	      --MadDump for reading and processing Light Dark Matter interactions, use -madpy for Pythia input in DIS'
         print ' for darkphoton generation, use -A meson or -A pbrem or -A qcd'
         print '       --SusyBench to specify which of the preset benchmarks to generate (default 2)'
         print '       --mass or -m to set HNL or New Particle mass'
@@ -98,7 +103,8 @@ for o, a in opts:
         if o in ("--Genie",):
             simEngine = "Genie"
         if o in ("--MadDump",):
-		simEngine = "MadDump"
+            LightDarkMatter = True
+            simEngine = "MadDump"
         if o in ("--NuRadio",):
             simEngine = "nuRadiography"
         if o in ("--Ntuple",):
@@ -127,6 +133,8 @@ for o, a in opts:
             theSeed = int(a)
         if o in ("-s", "--sameSeed",):
             sameSeed = int(a)
+        if o in ("--madpy",):
+            inputPythiaFile = a
         if o in ("-f",):
             if a.lower() == "none": inputFile = None
             else: inputFile = a
@@ -364,19 +372,26 @@ if simEngine == "Nuage":
 #-----Light Dark Matter---------------------------
 
 if simEngine == "MadDump":
-# DMGenerator
- ut.checkFileExists(inputFile)		# inputFile is a MadGraph *.lhe file
+ import convertDMevents
  primGen.SetTarget(0., 0.) 
- inputROOTFile = (convertDMevents.convertFile(inputFile))
- ut.checkFileExists(inputROOTFile)
+ ESevent = 'ES'
+ DISevent = 'DIS'
+ if inputFile.find(ESevent) != -1 : #convert es if in inputfilename
+  inputROOTFile = (convertDMevents.convertES(inputFile))
+ if inputFile.find(DISevent) != -1 : #convert dis if in inputfilename
+  inputROOTFile = (convertDMevents.convertDIS(inputFile, inputPythiaFile))
+ 
+# ut.checkFileExists(inputROOTFile)
  DMgen = ROOT.DMGenerator()
  DMgen.Init(inputROOTFile, firstEvent) 
  DMgen.SetPositions(ship_geo.target.z0, ship_geo.NuTauTarget.zC-ship_geo.NuTauTarget.zdim/2, ship_geo.NuTauTarget.zC+ship_geo.NuTauTarget.zdim/2)
  primGen.AddGenerator(DMgen)
  nEvents = min(nEvents, DMgen.GetNevents())
+# Add LDM to pdg
+ pdg_ldm = ROOT.TDatabasePDG.Instance()
+ pdg_ldm.AddParticle('Xd','LDM', theLDMmass, True, 0., 0., 'Xd', LDMpdgcode)
  run.SetPythiaDecayer("DecayConfigNuAge.C")
  print 'Generate ', nEvents,' with DMGenerator. Input: first event #', firstEvent, ' from MadDump input file ', inputFile
-
 
 # -----Neutrino Background------------------------
 if simEngine == "Genie":
